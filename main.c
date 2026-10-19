@@ -1,10 +1,13 @@
-#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/spi/spidev.h>
+#include <sys/mman.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-//#include <threads.h>
-//#include <unistd.h>
 #include <time.h>
 #include <SDL2/SDL.h>
 // bits    mais clara
@@ -14,6 +17,14 @@
 // 11    Cor 3: #0F380F
 //   mais escura
 
+#define DC 25
+#define RST 27
+#define BL 18
+
+static volatile uint32_t *gpio;
+#define endereco_pino_DC
+
+int spi;
 
 void set_interrupt(int bit, bool true_or_false);
 
@@ -196,7 +207,9 @@ typedef struct GB_PPU {
     uint8_t current_LY;
     SDL_Rect debug_rec_screen[144][160];
     uint8_t LCDscreen[144][160];
+
     uint8_t LCDscreen_pixel_color[144][160];
+    uint16_t LCDscreen_currY[160];
     Sprite sprite_bank[10];
     uint8_t sprite_count;
     // mode 0 blank horizontal
@@ -253,10 +266,10 @@ bool on_start_button = false;
 GB_PPU ppu;
 GB_reg cpu;
 GB_Memory memory;
-
-SDL_Window *screen = NULL;
-SDL_Surface *screenSurface = NULL;
-SDL_Renderer *renderer = NULL;
+//
+// SDL_Window *screen = NULL;
+// SDL_Surface *screenSurface = NULL;
+// SDL_Renderer *renderer = NULL;
 
 time_t *old_time = NULL, *new_time = NULL;
 
@@ -2870,7 +2883,7 @@ void clear_registers() {
             ppu.debug_rec_screen[i][j].y = y_lcd;
             x_lcd+=2;
         }
-        SDL_RenderDrawRects(renderer, ppu.debug_rec_screen[i], 160);
+        //SDL_RenderDrawRects(renderer, ppu.debug_rec_screen[i], 160);
         x_lcd = 0;
         y_lcd+=2;
     }
@@ -2888,32 +2901,20 @@ void SDL_SetColor2(SDL_Renderer *renderer) {
 void SDL_SetColor3(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 42, 78, 40, 255); // #2A4E28
 }
-void render_to_lcd() {
-    for (int i =0; i<144;i++) {
-        for (int j = 0; j<160;j++) {
-            switch (ppu.LCDscreen[i][j]) {
-                case 0b00: SDL_SetColor0(renderer); break;
-                case 0b01: SDL_SetColor1(renderer); break;
-                case 0b10: SDL_SetColor2(renderer); break;
-                case 0b11: SDL_SetColor3(renderer); break;
-            }
-            SDL_RenderDrawPoint(renderer, j , i);
-        }
-    }
-}
 
-void render_to_lcd_2x() {
-    for (int i =0; i<144;i++) {
-        for (int j = 0; j<160;j++) {
-            switch (ppu.LCDscreen[i][j]) {
-                case 0b00: SDL_SetColor0(renderer); break;
-                case 0b01: SDL_SetColor1(renderer); break;
-                case 0b10: SDL_SetColor2(renderer); break;
-                case 0b11: SDL_SetColor3(renderer); break;
-            }
-            SDL_RenderFillRect(renderer, &ppu.debug_rec_screen[i][j]);
-        }
-    }
+//
+// void render_to_lcd_2x() {
+//     for (int i =0; i<144;i++) {
+//         for (int j = 0; j<160;j++) {
+//             switch (ppu.LCDscreen[i][j]) {
+//                 case 0b00: SDL_SetColor0(renderer); break;
+//                 case 0b01: SDL_SetColor1(renderer); break;
+//                 case 0b10: SDL_SetColor2(renderer); break;
+//                 case 0b11: SDL_SetColor3(renderer); break;
+//             }
+//             SDL_RenderFillRect(renderer, &ppu.debug_rec_screen[i][j]);
+//         }
+//     }
     // if (emulation_2x) {
     //     SDL_SetColor3(renderer);
     //     uint16_t y_coord = 144 * 2 + 50;
@@ -2925,7 +2926,7 @@ void render_to_lcd_2x() {
     //     SDL_RenderDrawRect(renderer, &r);
     //     SDL_RenderFillRect(renderer, &r);
     // }
-}
+//}
 
 /*
 
@@ -2949,8 +2950,7 @@ void render_to_lcd_2x() {
         y_lcd+=2;
         }
 }
-
- */
+*/
 
 // primera etapa, busca na OAM da scanline atual
 /*.
@@ -3246,11 +3246,61 @@ void render_scanline() {
             }
             ppu.LCDscreen_pixel_color[curr_ly][i] = color_bit;
             ppu.LCDscreen[curr_ly][i] = shade;
+            /*
+                cor 1-> 0xc6f2
+                cor 2-> 0x9e0d
+                cor 3-> 0x5c49
+                cor 4-> 0x2a65
+            */
+            switch (shade) {
+                case 0:
+                    ppu.LCDscreen_currY[i] = 0xF2C6;
+                    break;
+                case 1:
+                    ppu.LCDscreen_currY[i] = 0x0D9E;
+                    break;
+                case 2:
+                    ppu.LCDscreen_currY[i] = 0x495C;
+                    break;
+                case 3:
+                    ppu.LCDscreen_currY[i] = 0x652A;
+            }
         }
         if (cond_update_window) ppu.current_LY_from_window++;
     }
 }
+void saida(int pino) {
+    int indice = pino / 10;
+    int deslocamento = (pino % 10) * 3;
+    gpio[indice] = (gpio[indice] & ~(7u << deslocamento)) | (1u << deslocamento);
+}
 
+void nivel(int pino, int alto) {
+    gpio[alto ? 7 : 10] = 1u << pino;
+}
+
+void enviar(const uint16_t *dados, size_t tamanho) {
+    while (tamanho > 0) {
+        ssize_t n = write(spi, dados, tamanho);
+        if (n <= 0) { perror("Falha no SPI"); exit(1); }
+        dados += n;
+        tamanho -= (size_t)n;
+    }
+}
+
+void comando(uint16_t cmd) {
+    nivel(DC, 0);
+    enviar(&cmd, 1);
+}
+
+void dados(uint16_t *buf, size_t n) {
+    nivel(DC, 1);
+    enviar(buf, n);
+}
+
+void send_to_LCD() {
+    dados(ppu.LCDscreen_currY, 320);
+}
 void ppu_cycles_Verify() {
     if (!check_LCDC(7)) {
         return;
@@ -3314,6 +3364,7 @@ void ppu_cycles_Verify() {
             oam_scan();
             set_ppu_mode(3);
             render_scanline();
+            send_to_LCD();
             if (check_LCDC(1)){
                 (check_LCDC(2))? render_sprites_in_line_8x16() : render_sprites_in_line();
             }
@@ -3338,11 +3389,19 @@ void ppu_cycles_Verify() {
          * apenas uma vez, na primeira entrada em VBlank.
          */
         if (!ppu.executou_modo_1) {
+            comando(0x2C);
             set_ppu_mode(1);
-            SDL_SetColor0(renderer);
-            SDL_RenderClear(renderer);
-            (render_in_2x_resolution)? render_to_lcd_2x() : render_to_lcd();
-            SDL_RenderPresent(renderer);
+            //SDL_SetColor0(renderer);
+            //SDL_RenderClear(renderer);
+            //todo:passar para o LCD
+            /*
+                cor 1-> 0xc6f2
+                cor 2-> 0x9e0d
+                cor 3-> 0x5c49
+                cor 4-> 0x2a65
+            */
+            //render_to_lcd();
+            //SDL_RenderPresent(renderer);
             vblank_start_joypad = true;
             if (get_STAT_mode(4)) {
                 set_interrupt(1, true);
@@ -3378,16 +3437,35 @@ int main(int argc, char*argv[]) {
         perror("SDL nao inicializou");
         SDL_Quit();
     }
+    int fd = open("/dev/gpiomem", O_RDWR | O_SYNC);
+    gpio = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                MAP_SHARED, fd, 0);
+    close(fd);
+    spi = open("/dev/spidev0.0", O_RDWR);
+    uint8_t modo = SPI_MODE_0;
+    uint8_t bits = 8;
+    uint32_t velocidade = 8000000;
+    ioctl(spi, SPI_IOC_WR_MODE, &modo);
+    ioctl(spi, SPI_IOC_WR_BITS_PER_WORD, &bits);
+    ioctl(spi, SPI_IOC_WR_MAX_SPEED_HZ, &velocidade);
+    uint16_t coluna[] = /*0xc7002800;*/ {__builtin_bswap16(40),__builtin_bswap16(199)};
+    uint16_t row[] = /*0x0f01800;*/ {__builtin_bswap16(128), __builtin_bswap16(271)};
+
+    comando(0x2A);
+    dados(coluna, sizeof(coluna));
+    comando(0x2B);
+    dados(row, sizeof(row));
+
     // SDL_CreateWindowAndRenderer(160, 288, SDL_WINDOW_SHOWN, &screen2, &renderer_OAM);
     // if (screen2 == NULL) {
     //     SDL_DestroyWindow(screen2);
     // }
-    (render_in_2x_resolution)? SDL_CreateWindowAndRenderer(160*2, 244*2, SDL_WINDOW_SHOWN, &screen, &renderer) : SDL_CreateWindowAndRenderer(160, 244, SDL_WINDOW_SHOWN, &screen, &renderer);
-    if (screen == NULL) {
-        SDL_DestroyWindow(screen);
-    }
-    screenSurface = SDL_GetWindowSurface(screen);
-    // screenSurface2 = SDL_GetWindowSurface(screen2);
+    //(render_in_2x_resolution)? SDL_CreateWindowAndRenderer(160*2, 244*2, SDL_WINDOW_SHOWN, &screen, &renderer) : SDL_CreateWindowAndRenderer(160, 244, SDL_WINDOW_SHOWN, &screen, &renderer);
+    // if (screen == NULL) {
+    //     SDL_DestroyWindow(screen);
+    // }
+    // screenSurface = SDL_GetWindowSurface(screen);
+    // // screenSurface2 = SDL_GetWindowSurface(screen2);
     // SDL_RenderPresent(renderer_OAM);
     // SDL_FillRect(screenSurface2, NULL, 0x000000);
     uint16_t temporary_PC_addr = 0x0000;
@@ -3505,7 +3583,7 @@ int main(int argc, char*argv[]) {
                         persist_save_game_on_exit();
                         free(memory.game_rom);
                         //free(cpu.game_file);
-                        SDL_DestroyWindow(screen);
+                        //SDL_DestroyWindow(screen);
                         SDL_Quit();
                         exit(0);
                         // 4:55
@@ -3577,7 +3655,7 @@ int main(int argc, char*argv[]) {
                                     persist_save_game_on_exit();
                                     free(memory.game_rom);
                                     //free(cpu.game_file);
-                                    SDL_DestroyWindow(screen);
+                                    //SDL_DestroyWindow(screen);
                                     SDL_Quit();
                                     exit(0);
                                 }
@@ -3587,7 +3665,7 @@ int main(int argc, char*argv[]) {
                                 if (contador_quit_game>=2) {
                                     free(memory.game_rom);
                                     //free(cpu.game_file);
-                                    SDL_DestroyWindow(screen);
+                                    //SDL_DestroyWindow(screen);
                                     SDL_Quit();
                                     exit(0);
                                 }
@@ -3669,7 +3747,7 @@ int main(int argc, char*argv[]) {
                 if (cpu.enable_interrupt) {cpu.IME = true; cpu.enable_interrupt = false;}
             }
         }
-        SDL_DestroyWindow(screen);
+        //SDL_DestroyWindow(screen);
         SDL_Quit();
     }
 }
