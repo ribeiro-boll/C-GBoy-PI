@@ -1,8 +1,7 @@
 #include <fcntl.h>
 #include <unistd.h>
-#include <sys/ioctl.h>
-#include <linux/spi/spidev.h>
-#include <sys/mman.h>
+#include <wiringPi.h>
+#include <wiringPiSPI.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -17,12 +16,33 @@
 // 11    Cor 3: #0F380F
 //   mais escura
 
-#define DC 25
-#define RST 27
-#define BL 18
-
 static volatile uint32_t *gpio;
-#define endereco_pino_DC
+
+
+/*
+
+| GPIO   | Cor      | Botão  |
+| ------ | -------- | ------ |
+| GPIO26 | Vermelho | Right  |
+| GPIO16 | Verde    | Up     |
+| GPIO13 | Laranja  | Left   |
+| GPIO12 | Branco   | Down   |
+| GPIO5  | Azul     | Select |
+| GPIO6  | Roxo     | Start  |
+| GPIO4  | Amarelo  | A      |
+| GPIO17 | Cinza    | B      |
+
+ */
+#define pino_up     16
+#define pino_down   12
+#define pino_right  26
+#define pino_left   13
+
+#define pino_A      4
+#define pino_B      17
+#define pino_Select 05
+#define pino_Start  06
+#define pino_Reset  22
 
 int spi;
 
@@ -253,15 +273,27 @@ bool cond_estado_2_da_ppu_foi_mudado = true;
 bool cond_estado_1_da_ppu_foi_mudado = true;
 bool cond_estado_0_da_ppu_foi_mudado = true;
 
-bool on_left_button = false;
-bool on_right_button = false;
-bool on_down_button = false;
-bool on_up_button = false;
+// bool on_left_button = false;
+// bool on_right_button = false;
+// bool on_down_button = false;
+// bool on_up_button = false;
+//
+// bool on_A_button = false;
+// bool on_B_button = false;
+// bool on_select_button = false;
+// bool on_start_button = false;
 
-bool on_A_button = false;
-bool on_B_button = false;
-bool on_select_button = false;
-bool on_start_button = false;
+bool on_reset_button_phys = false;
+
+bool on_left_button_phys = false;
+bool on_right_button_phys = false;
+bool on_down_button_phys = false;
+bool on_up_button_phys = false;
+
+bool on_A_button_phys = false;
+bool on_B_button_phys = false;
+bool on_select_button_phys = false;
+bool on_start_button_phys = false;
 
 GB_PPU ppu;
 GB_reg cpu;
@@ -964,18 +996,18 @@ uint8_t read_from_memory_8bit(uint16_t address) {
         uint8_t joypad = memory.IO[0];
         if ((joypad & 0b00110000) == 0b00100000) {
             uint8_t dummy = joypad | 0b11001111;
-            dummy = (on_down_button)?   dummy & 0b11110111 : dummy | 0b00001000;
-            dummy = (on_up_button)?     dummy & 0b11111011 : dummy | 0b00000100;
-            dummy = (on_left_button)?   dummy & 0b11111101 : dummy | 0b00000010;
-            dummy = (on_right_button)?  dummy & 0b11111110 : dummy | 0b00000001;
+            dummy = (__atomic_load_n(&on_down_button_phys,__ATOMIC_RELAXED))?   dummy & 0b11110111 : dummy | 0b00001000;
+            dummy = (__atomic_load_n(&on_up_button_phys,__ATOMIC_RELAXED))?     dummy & 0b11111011 : dummy | 0b00000100;
+            dummy = (__atomic_load_n(&on_left_button_phys,__ATOMIC_RELAXED))?   dummy & 0b11111101 : dummy | 0b00000010;
+            dummy = (__atomic_load_n(&on_right_button_phys,__ATOMIC_RELAXED))?  dummy & 0b11111110 : dummy | 0b00000001;
             return dummy;
         }
         if ((joypad & 0b00110000) == 0b00010000) {
             uint8_t dummy = joypad | 0b11001111;
-            dummy = (on_start_button)?  dummy & 0b11110111 : dummy | 0b00001000;
-            dummy = (on_select_button)? dummy & 0b11111011 : dummy | 0b00000100;
-            dummy = (on_B_button)?      dummy & 0b11111101 : dummy | 0b00000010;
-            dummy = (on_A_button)?      dummy & 0b11111110 : dummy | 0b00000001;
+            dummy = (__atomic_load_n(&on_start_button_phys,__ATOMIC_RELAXED))?  dummy & 0b11110111 : dummy | 0b00001000;
+            dummy = (__atomic_load_n(&on_select_button_phys,__ATOMIC_RELAXED))? dummy & 0b11111011 : dummy | 0b00000100;
+            dummy = (__atomic_load_n(&on_B_button_phys,__ATOMIC_RELAXED))?      dummy & 0b11111101 : dummy | 0b00000010;
+            dummy = (__atomic_load_n(&on_A_button_phys,__ATOMIC_RELAXED))?      dummy & 0b11111110 : dummy | 0b00000001;
             return dummy;
         }
         if ((joypad & 0b00110000) == 0b00110000) {
@@ -984,10 +1016,10 @@ uint8_t read_from_memory_8bit(uint16_t address) {
         }
         if ((joypad & 0b00110000) == 0) {
             uint8_t dummy = joypad | 0b11001111;
-            dummy = ((on_down_button)  | (on_start_button))?   dummy & 0b11110111 : dummy | 0b00001000;
-            dummy = ((on_up_button)    | (on_select_button)) ?   dummy & 0b11111011 : dummy | 0b00000100;
-            dummy = ((on_left_button)  | (on_B_button))?       dummy & 0b11111101 : dummy | 0b00000010;
-            dummy = ((on_right_button) | (on_A_button))?      dummy & 0b11111110 : dummy | 0b00000001;
+            dummy = ((__atomic_load_n(&on_down_button_phys,__ATOMIC_RELAXED))  | (__atomic_load_n(&on_start_button_phys,__ATOMIC_RELAXED)))?   dummy & 0b11110111 : dummy | 0b00001000;
+            dummy = ((__atomic_load_n(&on_up_button_phys,__ATOMIC_RELAXED))    | (__atomic_load_n(&on_select_button_phys,__ATOMIC_RELAXED))) ?   dummy & 0b11111011 : dummy | 0b00000100;
+            dummy = ((__atomic_load_n(&on_left_button_phys,__ATOMIC_RELAXED))  | (__atomic_load_n(&on_B_button_phys,__ATOMIC_RELAXED)))?       dummy & 0b11111101 : dummy | 0b00000010;
+            dummy = ((__atomic_load_n(&on_right_button_phys,__ATOMIC_RELAXED)) | (__atomic_load_n(&on_A_button_phys,__ATOMIC_RELAXED)))?      dummy & 0b11111110 : dummy | 0b00000001;
             return dummy;
         }
     }
@@ -3010,10 +3042,10 @@ void oam_scan() {
     }
 }
 
-void draw_sprite_pixels(int16_t start_index, bool prioridade_BG, bool **pixel_in_X_axis_claimed, int j, bool *pode_desenhar, uint8_t color_byte1, uint8_t color_byte2, uint8_t paleta, uint8_t curr_LY, bool x_flip) {
+void draw_sprite_pixels(int16_t start_index, bool prioridade_BG, bool *pixel_in_X_axis_claimed, int j, bool *pode_desenhar, uint8_t color_byte1, uint8_t color_byte2, uint8_t paleta, uint8_t curr_LY, bool x_flip) {
     if (start_index >= 0 && start_index < 160) {
         uint8_t low_bit, high_bit;
-        if (!((*pixel_in_X_axis_claimed)[start_index])) {
+        if (!((pixel_in_X_axis_claimed)[start_index])) {
             *pode_desenhar = true;
         }
         if (*pode_desenhar){
@@ -3027,17 +3059,46 @@ void draw_sprite_pixels(int16_t start_index, bool prioridade_BG, bool **pixel_in
             }
             uint8_t color = (high_bit|low_bit);//printf("color = %u\n", color);
             if (color != 0) {
-                (*pixel_in_X_axis_claimed)[start_index] = true;
+                (pixel_in_X_axis_claimed)[start_index] = true;
                 uint8_t shade = (paleta) ? (read_from_memory_8bit(0xFF49) >> (color * 2)) & 0x03 :  (read_from_memory_8bit(0xFF48) >> (color * 2)) & 0x03;
-                if (!(prioridade_BG))ppu.LCDscreen[curr_LY][start_index] = shade;
-                else {
-                    if (ppu.LCDscreen_pixel_color[curr_LY][start_index] == 0) ppu.LCDscreen[curr_LY][start_index] = shade;
+                if (!(prioridade_BG)){
+		            ppu.LCDscreen[curr_LY][start_index] = shade;
+                    switch (shade) {
+                        case 0:
+                            ppu.LCDscreen_currY[start_index] = 0xF2C6;
+                            break;
+                        case 1:
+                            ppu.LCDscreen_currY[start_index] = 0x0D9E;
+                            break;
+                        case 2:
+                            ppu.LCDscreen_currY[start_index] = 0x495C;
+                            break;
+                        case 3:
+                            ppu.LCDscreen_currY[start_index] = 0x652A;
+                    }
+        	    }
+		        else {
+                    if (ppu.LCDscreen_pixel_color[curr_LY][start_index] == 0){
+                        ppu.LCDscreen[curr_LY][start_index] = shade;
+                        switch (shade) {
+                            case 0:
+                                ppu.LCDscreen_currY[start_index] = 0xF2C6;
+                                break;
+                            case 1:
+                                ppu.LCDscreen_currY[start_index] = 0x0D9E;
+                                break;
+                            case 2:
+                                ppu.LCDscreen_currY[start_index] = 0x495C;
+                                break;
+                            case 3:
+                                ppu.LCDscreen_currY[start_index] = 0x652A;
+                        }
+                    }
                 }
             }
         }
     }
 }
-
 void render_sprites_in_line() {
     uint16_t default_addr = 0x8000;
     uint16_t tile_addr;
@@ -3054,9 +3115,7 @@ void render_sprites_in_line() {
     int16_t start_index;
     uint8_t tile_pixel_x;
     uint8_t color, high_bit, low_bit, shade;
-    bool *pixel_in_X_axis_claimed = NULL;
-    pixel_in_X_axis_claimed = malloc(sizeof(bool) * 160);
-    memset(pixel_in_X_axis_claimed, false, sizeof(bool) * 160);
+    bool pixel_in_X_axis_claimed[160] = {false};
     for (int i = 0; i < ppu.sprite_count; i++) {
         pode_desenhar = false;
         prioridade_BG = (ppu.sprite_bank[i].attributes & 0b10000000);
@@ -3076,7 +3135,7 @@ void render_sprites_in_line() {
             for (int j = 0; j < 8; j++) {
                 //
                 start_index = x_coord + j;
-                draw_sprite_pixels(start_index, prioridade_BG, &pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
+                draw_sprite_pixels(start_index, prioridade_BG, pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
             }
         }
 
@@ -3085,11 +3144,10 @@ void render_sprites_in_line() {
             color_byte2 = read_from_memory_8bit(tile_addr+1);
             for (int j = 0; j < 8 ; j++) {
                 start_index = x_coord + j;
-                draw_sprite_pixels(start_index, prioridade_BG, &pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
+                draw_sprite_pixels(start_index, prioridade_BG, pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
             }
         }
     }
-    free(pixel_in_X_axis_claimed);
 }
 
 // sprites 8x16
@@ -3107,9 +3165,7 @@ void render_sprites_in_line_8x16() {
     bool paleta;
     bool pode_desenhar;
     int16_t start_index;
-    bool *pixel_in_X_axis_claimed = NULL;
-    pixel_in_X_axis_claimed = malloc(sizeof(bool) * 160);
-    for (int i = 0; i < 160; i++) pixel_in_X_axis_claimed[i] = false;
+    bool pixel_in_X_axis_claimed[160] = {false};
     for (int i = 0; i < ppu.sprite_count; i++) {
         pode_desenhar = false;
         prioridade_BG = (ppu.sprite_bank[i].attributes & 0b10000000);
@@ -3134,7 +3190,7 @@ void render_sprites_in_line_8x16() {
             color_byte2 = read_from_memory_8bit(tile_addr+1);
             for (int j = 0; j < 8; j++) {
                 start_index =(int16_t) x_coord + j;
-                draw_sprite_pixels(start_index, prioridade_BG, &pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
+                draw_sprite_pixels(start_index, prioridade_BG, pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
             }
         }
         else {
@@ -3142,11 +3198,10 @@ void render_sprites_in_line_8x16() {
             color_byte2 = read_from_memory_8bit(tile_addr+1);
             for (int j = 0; j < 8 ; j++) {
                 start_index = x_coord + j;
-                draw_sprite_pixels(start_index, prioridade_BG, &pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
+                draw_sprite_pixels(start_index, prioridade_BG, pixel_in_X_axis_claimed, j, &pode_desenhar, color_byte1, color_byte2, paleta, curr_LY, x_flip);
             }
         }
     }
-   free(pixel_in_X_axis_claimed);
 }
 
 
@@ -3246,12 +3301,6 @@ void render_scanline() {
             }
             ppu.LCDscreen_pixel_color[curr_ly][i] = color_bit;
             ppu.LCDscreen[curr_ly][i] = shade;
-            /*
-                cor 1-> 0xc6f2
-                cor 2-> 0x9e0d
-                cor 3-> 0x5c49
-                cor 4-> 0x2a65
-            */
             switch (shade) {
                 case 0:
                     ppu.LCDscreen_currY[i] = 0xF2C6;
@@ -3265,42 +3314,163 @@ void render_scanline() {
                 case 3:
                     ppu.LCDscreen_currY[i] = 0x652A;
             }
+
+            /*
+                cor 1-> 0xc6f2
+                cor 2-> 0x9e0d
+                cor 3-> 0x5c49
+                cor 4-> 0x2a65
+            */
         }
         if (cond_update_window) ppu.current_LY_from_window++;
     }
 }
-void saida(int pino) {
-    int indice = pino / 10;
-    int deslocamento = (pino % 10) * 3;
-    gpio[indice] = (gpio[indice] & ~(7u << deslocamento)) | (1u << deslocamento);
+
+void write_command(uint8_t *command) {
+    digitalWrite(25, LOW);
+    write(spi, command, 1);
+}
+void write_data(uint8_t *data, uint16_t bytes) {
+    digitalWrite(25, HIGH);
+    write(spi, data, bytes);
+}
+void write_data_16bit(uint16_t *data, uint16_t bytes) {
+    digitalWrite(25, HIGH);
+    write(spi, data, bytes);
+}
+void reset_LCD() {
+    uint8_t startGram = 0x2c;
+    write_command(&startGram);
+}
+void send_to_lcd(uint16_t *buffer, uint16_t bytes) {
+    write_data_16bit(buffer, bytes);
 }
 
-void nivel(int pino, int alto) {
-    gpio[alto ? 7 : 10] = 1u << pino;
+/*
+
+| GPIO   | Cor      | Botão  |
+| ------ | -------- | ------ |
+| GPIO26 | Vermelho | Right  |
+| GPIO16 | Verde    | Up     |
+| GPIO13 | Laranja  | Left   |
+| GPIO12 | Branco   | Down   |
+| GPIO5  | Azul     | Select |
+| GPIO6  | Roxo     | Start  |
+| GPIO4  | Amarelo  | A      |
+| GPIO17 | Cinza    | B      |
+
+ */
+
+void handle_reset_button() {
+    __atomic_store_n(&on_reset_button_phys,digitalRead(pino_Reset) == LOW,__ATOMIC_RELAXED);
+}
+void handle_up_button() {
+    __atomic_store_n(&on_up_button_phys,digitalRead(pino_up) == LOW,__ATOMIC_RELAXED);
+}
+void handle_down_button() {
+    __atomic_store_n(&on_down_button_phys,digitalRead(pino_down) == LOW,__ATOMIC_RELAXED);
+}
+void handle_left_button() {
+    __atomic_store_n(&on_left_button_phys,digitalRead(pino_left) == LOW,__ATOMIC_RELAXED);
+}
+void handle_right_button() {
+    __atomic_store_n(&on_right_button_phys,digitalRead(pino_right) == LOW,__ATOMIC_RELAXED);
 }
 
-void enviar(const uint16_t *dados, size_t tamanho) {
-    while (tamanho > 0) {
-        ssize_t n = write(spi, dados, tamanho);
-        if (n <= 0) { perror("Falha no SPI"); exit(1); }
-        dados += n;
-        tamanho -= (size_t)n;
+void handle_A_button() {
+    __atomic_store_n(&on_A_button_phys,digitalRead(pino_A) == LOW,__ATOMIC_RELAXED);
+}
+void handle_B_button() {
+    __atomic_store_n(&on_B_button_phys,digitalRead(pino_B) == LOW,__ATOMIC_RELAXED);
+}
+void handle_Sel_button() {
+    __atomic_store_n(&on_select_button_phys,digitalRead(pino_Select) == LOW,__ATOMIC_RELAXED);
+}
+void handle_Start_button() {
+    __atomic_store_n(&on_start_button_phys,digitalRead(pino_Start) == LOW,__ATOMIC_RELAXED);
+}
+void pin_start() {
+    pinMode(pino_up, INPUT);
+    pinMode(pino_down, INPUT);
+    pinMode(pino_left, INPUT);
+    pinMode(pino_right, INPUT);
+
+    pinMode(pino_A, INPUT);
+    pinMode(pino_B, INPUT);
+    pinMode(pino_Select, INPUT);
+    pinMode(pino_Start, INPUT);
+    pinMode(pino_Reset, INPUT);
+
+
+    pullUpDnControl(pino_up, PUD_UP);
+    pullUpDnControl(pino_down, PUD_UP);
+    pullUpDnControl(pino_left, PUD_UP);
+    pullUpDnControl(pino_right, PUD_UP);
+
+    pullUpDnControl(pino_A, PUD_UP);
+    pullUpDnControl(pino_B, PUD_UP);
+    pullUpDnControl(pino_Select, PUD_UP);
+    pullUpDnControl(pino_Start, PUD_UP);
+    pullUpDnControl(pino_Reset, PUD_UP);
+
+    if (wiringPiISR(pino_up, INT_EDGE_BOTH, handle_up_button) < 0) exit(10);
+    if (wiringPiISR(pino_down, INT_EDGE_BOTH, handle_down_button) < 0) exit(11);
+    if (wiringPiISR(pino_left, INT_EDGE_BOTH, handle_left_button) < 0) exit(12);
+    if (wiringPiISR(pino_right, INT_EDGE_BOTH, handle_right_button) < 0) exit(13);
+    if (wiringPiISR(pino_A, INT_EDGE_BOTH, handle_A_button) < 0) exit(14);
+    if (wiringPiISR(pino_B, INT_EDGE_BOTH, handle_B_button) < 0) exit(15);
+    if (wiringPiISR(pino_Select, INT_EDGE_BOTH, handle_Sel_button) < 0) exit(16);
+    if (wiringPiISR(pino_Start, INT_EDGE_BOTH, handle_Start_button) < 0) exit(17);
+    if (wiringPiISR(pino_Reset, INT_EDGE_BOTH, handle_reset_button) < 0) exit(17);
+}
+void lcd_start() {
+    if (wiringPiSetupGpio()<0)
+        exit(1);
+    pin_start();
+    pinMode(18,OUTPUT);
+    usleep(15000);
+    pinMode(25,OUTPUT);// DC 0 = comando | DC 1 = dados
+    usleep(15000);
+    pinMode(27, OUTPUT);
+    usleep(15000);
+    digitalWrite(27, HIGH);
+    digitalWrite(18, HIGH);
+    spi = wiringPiSPISetupMode(0, 32000000, 3);
+    uint8_t sequencia[] = {0x1, 0x11, 0x3A, 0x36, 0x21, 0x13, 0x29,0x2A, 0x2B};
+    uint8_t dados[] = {0x55,0x0};
+    uint8_t contador = 0;
+    uint8_t rst = 0x2c;
+    for (uint8_t i = 0; i<9;i++) {
+        if (i == 2 || i == 3) {
+            write_command(&sequencia[i]);
+            write_data(&dados[contador], 1);
+            contador++;
+        }
+        else if (i == 7) {
+	    //bloco pra botar preto
+	    write_command(&rst);
+	    uint16_t blk[240] = {0};
+            for (uint8_t i = 0; i<240; i++){
+	    	send_to_lcd(blk, 240 * 2);
+            }
+	    write_command(&rst);
+            uint8_t col[] = {0,0x28,0,0xC7};
+            write_command(&sequencia[i]);
+            write_data(col, 4);
+        }
+        else if (i == 8) {
+            uint8_t row[] = {0,0x30,0,0xBF};
+            write_command(&sequencia[i]);
+            write_data(row, 4);
+        }
+        else {
+            write_command(&sequencia[i]);
+        }
+        usleep(15000);
     }
+    write_command(&rst);
 }
 
-void comando(uint16_t cmd) {
-    nivel(DC, 0);
-    enviar(&cmd, 1);
-}
-
-void dados(uint16_t *buf, size_t n) {
-    nivel(DC, 1);
-    enviar(buf, n);
-}
-
-void send_to_LCD() {
-    dados(ppu.LCDscreen_currY, 320);
-}
 void ppu_cycles_Verify() {
     if (!check_LCDC(7)) {
         return;
@@ -3364,16 +3534,16 @@ void ppu_cycles_Verify() {
             oam_scan();
             set_ppu_mode(3);
             render_scanline();
-            send_to_LCD();
             if (check_LCDC(1)){
                 (check_LCDC(2))? render_sprites_in_line_8x16() : render_sprites_in_line();
             }
+	    send_to_lcd(ppu.LCDscreen_currY, 320);
             ppu.executou_modo_3 = true;
         }
         else if (
             (80 + 172) <= ppu.contador_ciclos && ppu.contador_ciclos < (80 + 172 + 204) && !ppu.executou_modo_0) {
             set_ppu_mode(0);
-
+            //send_to_LCD();
             if (get_STAT_mode(3)) {
                 set_interrupt(1, true);
             }
@@ -3389,7 +3559,8 @@ void ppu_cycles_Verify() {
          * apenas uma vez, na primeira entrada em VBlank.
          */
         if (!ppu.executou_modo_1) {
-            comando(0x2C);
+
+            reset_LCD();
             set_ppu_mode(1);
             //SDL_SetColor0(renderer);
             //SDL_RenderClear(renderer);
@@ -3400,7 +3571,6 @@ void ppu_cycles_Verify() {
                 cor 3-> 0x5c49
                 cor 4-> 0x2a65
             */
-            //render_to_lcd();
             //SDL_RenderPresent(renderer);
             vblank_start_joypad = true;
             if (get_STAT_mode(4)) {
@@ -3429,32 +3599,52 @@ void DMA_transfer_Verify(uint8_t ciclos) {
     }
 }
 
+
+
 int main(int argc, char*argv[]) {
     printf("\n\nC-GBoy  Copyright (C) 2026  Lucca Guimarães\nThis program comes with ABSOLUTELY NO WARRANTY, for details check the main repository.\nThis is free software, and you are welcome to redistribute it under certain conditions, again, check the main repository for more information.\n\n");
     old_time = malloc(sizeof(time_t));
     new_time = malloc(sizeof(time_t));
-    if (SDL_Init(SDL_INIT_EVERYTHING)!=0) {
+    if (SDL_Init(SDL_INIT_TIMER)!=0) {
         perror("SDL nao inicializou");
         SDL_Quit();
     }
-    int fd = open("/dev/gpiomem", O_RDWR | O_SYNC);
-    gpio = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                MAP_SHARED, fd, 0);
-    close(fd);
-    spi = open("/dev/spidev0.0", O_RDWR);
-    uint8_t modo = SPI_MODE_0;
-    uint8_t bits = 8;
-    uint32_t velocidade = 8000000;
-    ioctl(spi, SPI_IOC_WR_MODE, &modo);
-    ioctl(spi, SPI_IOC_WR_BITS_PER_WORD, &bits);
-    ioctl(spi, SPI_IOC_WR_MAX_SPEED_HZ, &velocidade);
-    uint16_t coluna[] = /*0xc7002800;*/ {__builtin_bswap16(40),__builtin_bswap16(199)};
-    uint16_t row[] = /*0x0f01800;*/ {__builtin_bswap16(128), __builtin_bswap16(271)};
-
-    comando(0x2A);
-    dados(coluna, sizeof(coluna));
-    comando(0x2B);
-    dados(row, sizeof(row));
+    // int fd = open("/dev/gpiomem", O_RDWR | O_SYNC);
+    // gpio = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+    //             MAP_SHARED, fd, 0);
+    // close(fd);
+    // spi = open("/dev/spidev0.0", O_RDWR);
+    // uint8_t modo = SPI_MODE_3;
+    // uint8_t bits = 8;
+    // uint32_t velocidade = 8000000;
+    // ioctl(spi, SPI_IOC_WR_MODE, &modo);
+    // ioctl(spi, SPI_IOC_WR_BITS_PER_WORD, &bits);
+    // ioctl(spi, SPI_IOC_WR_MAX_SPEED_HZ, &velocidade);
+    // uint16_t coluna[] = /*0xc7002800;*/ {__builtin_bswap16(40),__builtin_bswap16(199)};
+    // uint16_t row[] = /*0x0f01800;*/ {__builtin_bswap16(64), __builtin_bswap16(270)};
+    // comando(0x01);
+    // SDL_Delay(120);
+    // comando(0x11);
+    // SDL_Delay(120);
+    // comando(0x3A);
+    // uint16_t formato = 0x55;
+    // dados(&formato,1);
+    // SDL_Delay(120);
+    // comando(0x36);
+    // uint16_t orient = 0x0;
+    //
+    // dados(&orient,1);
+    // SDL_Delay(120);
+    // comando(0x21);
+    // SDL_Delay(120);
+    // comando(0x13);
+    // SDL_Delay(120);
+    // comando(0x29);
+    // SDL_Delay(120);
+    // comando(0x2A);
+    // dados(coluna, sizeof(coluna));
+    // comando(0x2B);
+    // dados(row, sizeof(row));
 
     // SDL_CreateWindowAndRenderer(160, 288, SDL_WINDOW_SHOWN, &screen2, &renderer_OAM);
     // if (screen2 == NULL) {
@@ -3470,6 +3660,7 @@ int main(int argc, char*argv[]) {
     // SDL_FillRect(screenSurface2, NULL, 0x000000);
     uint16_t temporary_PC_addr = 0x0000;
     clear_registers();
+    lcd_start();
     char* path_rom = argv[1];
     if (!cond_debug) start_game(path_rom);
     //printf("Gameboy ROM size: %d\n", memory.game_rom_lenght);
@@ -3531,7 +3722,6 @@ int main(int argc, char*argv[]) {
         //write_into_memory_8bit(0xFF00, 0b00101111);
         bool cond_up_day_overflow = false;
         while (1) {
-
             if (memory.MBC_type == 3 && (memory.MBC_register.MBC3.RTC_Register & 0b01000000) == 0) {
                 *new_time = time(NULL);
                 diff = *new_time - *old_time;
@@ -3576,103 +3766,107 @@ int main(int argc, char*argv[]) {
             }
             if (vblank_start_joypad) {
                 vblank_start_joypad = false;
+                if (__atomic_load_n(&on_reset_button_phys, __ATOMIC_RELAXED)) {
+                    persist_save_game_on_exit();
+                    exit(0);
+                }
                 //printf("FFCC = %02X\n", read_from_memory_8bit(0xFFCC));
                 //printf("FF8C = %02X | FFC0 = %02X | FF91 = %02X\n ", read_from_memory_8bit(0xFF8C),read_from_memory_8bit(0xFFc0), read_from_memory_8bit(0xFF91));
-                while (SDL_PollEvent(&event)) {
-                    if (event.type == SDL_QUIT) {
-                        persist_save_game_on_exit();
-                        free(memory.game_rom);
-                        //free(cpu.game_file);
-                        //SDL_DestroyWindow(screen);
-                        SDL_Quit();
-                        exit(0);
-                        // 4:55
-                    }
-                    if (event.type == SDL_KEYUP) {
-                        switch (event.key.keysym.sym) {
-                            case SDLK_LEFT:
-                                on_left_button = false; break;
-                                // <- esquerda
-                            case SDLK_RIGHT:
-                                on_right_button = false; break;
-                                // direita ->
-                            case SDLK_UP:
-                                on_up_button = false; break;
-                            case SDLK_DOWN:
-                                on_down_button = false; break;
-
-                            case SDLK_a:
-                                on_A_button = false; break;
-                                // botão A
-                            case SDLK_s:
-                                on_B_button = false; break;
-                                // botão B
-                            case SDLK_z:
-                                on_select_button = false; break;
-                                // botão select
-                            case SDLK_x:
-                                on_start_button = false; break;
-                            case SDLK_f:
-                                if (emulation_2x_latch) {
-                                    if (emulation_2x) emulation_2x =  false;
-                                    else emulation_2x = true;
-                                }
-                                emulation_2x_latch = false; break;
-                                //botão start
-                        }
-                    }
-                    if (event.type == SDL_KEYDOWN) {
-
-                        switch (event.key.keysym.sym) {
-                            case SDLK_LEFT:
-                                on_left_button = true; break;
-                                // <- esquerda
-                            case SDLK_RIGHT:
-                                on_right_button = true; break;
-                                // direita ->
-                            case SDLK_UP:
-                                on_up_button = true; break;
-                            case SDLK_DOWN:
-                                on_down_button = true; break;
-
-                            case SDLK_a:
-                                on_A_button = true; break;
-                                // botão A
-                            case SDLK_s:
-                                on_B_button = true; break;
-                                // botão B
-                            case SDLK_z:
-                                on_select_button = true; break;
-                                // botão select
-                            case SDLK_x:
-                                on_start_button = true; break;
-                                //botão start
-                            case SDLK_f:
-                                emulation_2x_latch = true; break;
-                            case SDLK_ESCAPE:
-                                contador_quit_game++;
-                                if (contador_quit_game>=2) {
-                                    persist_save_game_on_exit();
-                                    free(memory.game_rom);
-                                    //free(cpu.game_file);
-                                    //SDL_DestroyWindow(screen);
-                                    SDL_Quit();
-                                    exit(0);
-                                }
-                                break;
-                            case SDLK_BACKSPACE:
-                                contador_quit_game++;
-                                if (contador_quit_game>=2) {
-                                    free(memory.game_rom);
-                                    //free(cpu.game_file);
-                                    //SDL_DestroyWindow(screen);
-                                    SDL_Quit();
-                                    exit(0);
-                                }
-                                break;
-                        }
-                    }
-                }
+            //     while (SDL_PollEvent(&event)) {
+            //         if (event.type == SDL_QUIT) {
+            //             persist_save_game_on_exit();
+            //             free(memory.game_rom);
+            //             //free(cpu.game_file);
+            //             //SDL_DestroyWindow(screen);
+            //             SDL_Quit();
+            //             exit(0);
+            //             // 4:55
+            //         }
+            //         if (event.type == SDL_KEYUP) {
+            //             switch (event.key.keysym.sym) {
+            //                 case SDLK_LEFT:
+            //                     on_left_button = false; break;
+            //                     // <- esquerda
+            //                 case SDLK_RIGHT:
+            //                     on_right_button = false; break;
+            //                     // direita ->
+            //                 case SDLK_UP:
+            //                     on_up_button = false; break;
+            //                 case SDLK_DOWN:
+            //                     on_down_button = false; break;
+            //
+            //                 case SDLK_a:
+            //                     on_A_button = false; break;
+            //                     // botão A
+            //                 case SDLK_s:
+            //                     on_B_button = false; break;
+            //                     // botão B
+            //                 case SDLK_z:
+            //                     on_select_button = false; break;
+            //                     // botão select
+            //                 case SDLK_x:
+            //                     on_start_button = false; break;
+            //                 case SDLK_f:
+            //                     if (emulation_2x_latch) {
+            //                         if (emulation_2x) emulation_2x =  false;
+            //                         else emulation_2x = true;
+            //                     }
+            //                     emulation_2x_latch = false; break;
+            //                     //botão start
+            //             }
+            //         }
+            //         if (event.type == SDL_KEYDOWN) {
+            //
+            //             switch (event.key.keysym.sym) {
+            //                 case SDLK_LEFT:
+            //                     on_left_button = true; break;
+            //                     // <- esquerda
+            //                 case SDLK_RIGHT:
+            //                     on_right_button = true; break;
+            //                     // direita ->
+            //                 case SDLK_UP:
+            //                     on_up_button = true; break;
+            //                 case SDLK_DOWN:
+            //                     on_down_button = true; break;
+            //
+            //                 case SDLK_a:
+            //                     on_A_button = true; break;
+            //                     // botão A
+            //                 case SDLK_s:
+            //                     on_B_button = true; break;
+            //                     // botão B
+            //                 case SDLK_z:
+            //                     on_select_button = true; break;
+            //                     // botão select
+            //                 case SDLK_x:
+            //                     on_start_button = true; break;
+            //                     //botão start
+            //                 case SDLK_f:
+            //                     emulation_2x_latch = true; break;
+            //                 case SDLK_ESCAPE:
+            //                     contador_quit_game++;
+            //                     if (contador_quit_game>=2) {
+            //                         persist_save_game_on_exit();
+            //                         free(memory.game_rom);
+            //                         //free(cpu.game_file);
+            //                         //SDL_DestroyWindow(screen);
+            //                         SDL_Quit();
+            //                         exit(0);
+            //                     }
+            //                     break;
+            //                 case SDLK_BACKSPACE:
+            //                     contador_quit_game++;
+            //                     if (contador_quit_game>=2) {
+            //                         free(memory.game_rom);
+            //                         //free(cpu.game_file);
+            //                         //SDL_DestroyWindow(screen);
+            //                         SDL_Quit();
+            //                         exit(0);
+            //                     }
+            //                     break;
+            //             }
+            //         }
+            //     }
             }
 
             //
