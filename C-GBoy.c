@@ -255,7 +255,7 @@ bool render_in_2x_resolution = true;
 
 bool emulation_2x_latch = false;
 bool emulation_2x = false;
-
+bool EI_interrupt_enable_cond = false;
 bool close_latch = false;
 bool close_gb = false;
 
@@ -829,11 +829,11 @@ void MBC3_bus_write(uint16_t address, uint8_t value) {
     }
     else if (address >= 0x2000 && address <= 0x3FFF) {
         memory.MBC_register.MBC3.ROM_bank[address-0x2000] = value;
-        memory.MBC_register.MBC3.rom_bank_curr = (value == 0)? 1 : value;
+        memory.MBC_register.MBC3.rom_bank_curr = (value == 0)? 1 : value & 0b01111111;
     }
     else if (address >= 0x4000 && address <= 0x5FFF) {
         memory.MBC_register.MBC3.RAM_banking_or_RTC_register_select[address - 0x4000] = value;
-        memory.MBC_register.MBC3.Register_selected = value;
+        memory.MBC_register.MBC3.Register_selected = value & 0b01111111;
     }
     else if (address >= 0x6000 && address <= 0x7FFF && memory.MBC_register.MBC3.ram_bank_on_bool) {
         if (memory.MBC_register.MBC3.last_latched_val == 0 && value == 0x1) {
@@ -1261,6 +1261,9 @@ uint8_t get_curr_LY() {
 void increment_LY(){
     uint8_t ly = get_curr_LY();
     (ly == 153) ? write_into_memory_8bit(0xFF44,0) : write_into_memory_8bit(0xFF44, ly+1);
+}
+void set_ly(uint8_t val) {
+    write_into_memory_8bit(0xFF44,val);
 }
 /*
 There are various sources which can trigger this interrupt to occur as described in STAT register ($FF41).
@@ -2014,10 +2017,10 @@ uint8_t check_operand_row_collum_6_CB_PREFIX(uint8_t opcode) {
         case 0x20: shift_register(&temp,'L',false); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
         case 0x30: swap_nibbles(&temp); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
 
-        case 0x40: bit_opcode(&temp, 0); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
-        case 0x50: bit_opcode(&temp, 2); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
-        case 0x60: bit_opcode(&temp, 4); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
-        case 0x70: bit_opcode(&temp, 6); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
+        case 0x40: bit_opcode(&temp, 0); cpu.PC+=2; return 12;
+        case 0x50: bit_opcode(&temp, 2); cpu.PC+=2; return 12;
+        case 0x60: bit_opcode(&temp, 4); cpu.PC+=2; return 12;
+        case 0x70: bit_opcode(&temp, 6); cpu.PC+=2; return 12;
 
         case 0x80: flip_bit_opcode(&temp, 0, false); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
         case 0x90: flip_bit_opcode(&temp, 2, false); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
@@ -2193,17 +2196,17 @@ uint8_t check_operand_row_collum_D_CB_PREFIX(uint8_t opcode) {
 }
 uint8_t check_operand_row_collum_E_CB_PREFIX(uint8_t opcode) {
     uint8_t temp = read_from_memory_8bit(extract_address(cpu.H, cpu.L));
-    write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp);
+    //write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp);
     switch (get_opcode_row(opcode)) {
         case 0x00: rotate_register(&temp, 'R', false); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
         case 0x10: rotate_register(&temp, 'R', true); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
         case 0x20: shift_register(&temp,'R',false); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
         case 0x30: shift_register(&temp,'R',true); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
 
-        case 0x40: bit_opcode(&temp, 1); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
-        case 0x50: bit_opcode(&temp, 3); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
-        case 0x60: bit_opcode(&temp, 5); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
-        case 0x70: bit_opcode(&temp, 7); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 12;
+        case 0x40: bit_opcode(&temp, 1); cpu.PC+=2; return 12;
+        case 0x50: bit_opcode(&temp, 3); cpu.PC+=2; return 12;
+        case 0x60: bit_opcode(&temp, 5); cpu.PC+=2; return 12;
+        case 0x70: bit_opcode(&temp, 7); cpu.PC+=2; return 12;
 
         case 0x80: flip_bit_opcode(&temp, 1, false); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
         case 0x90: flip_bit_opcode(&temp, 3, false); write_into_memory_8bit(extract_address(cpu.H, cpu.L),temp); cpu.PC+=2; return 16;
@@ -2683,7 +2686,7 @@ uint8_t check_operand_row_collum_B(uint8_t opcode) {
         case 0xC0: return check_operand_collumn_CB_PREFIX(read_from_memory_8bit(cpu.PC +1));
         case 0xD0: return 0;
         case 0xE0: return 0;
-        case 0xF0: cpu.enable_interrupt = true; cpu.PC++; return 4;  //TODO: cond_enable EI
+        case 0xF0: cpu.enable_interrupt = true;/*EI_interrupt_enable_cond = true;*/ cpu.PC++; return 4;  //TODO: cond_enable EI
         default:
     }
 }
@@ -2845,13 +2848,14 @@ void incrementar_ciclos(uint8_t ciclos) {
     }
 }
 void clear_registers() {
-    cpu.A = 0;
-    cpu.B = 0;
-    cpu.C = 0;
-    cpu.D = 0;
-    cpu.E = 0;
-    cpu.H = 0;
-    cpu.L = 0;
+    cpu.A = 0x01;
+    cpu.F = 0xB0;
+    cpu.B = 0x00;
+    cpu.C = 0x13;
+    cpu.D = 0x00;
+    cpu.E = 0xD8;
+    cpu.H = 0x01;
+    cpu.L = 0x4D;
     cpu.F = 0b00000000;
     cpu.SP = 0xFFFE;
     cpu.PC = 0x0100;
@@ -3389,7 +3393,19 @@ void handle_Sel_button() {
 void handle_Start_button() {
     __atomic_store_n(&on_start_button_phys,digitalRead(pino_Start) == LOW,__ATOMIC_RELAXED);
 }
-void pin_start() {
+
+void start_sys() {
+    if (wiringPiSetupGpio()<0)
+        exit(1);
+    pinMode(18,OUTPUT);
+    usleep(15000);
+    pinMode(25,OUTPUT);// DC 0 = comando | DC 1 = dados
+    usleep(15000);
+    pinMode(27, OUTPUT);
+    usleep(15000);
+    digitalWrite(27, HIGH);
+    digitalWrite(18, HIGH);
+
     pinMode(pino_up, INPUT);
     pinMode(pino_down, INPUT);
     pinMode(pino_left, INPUT);
@@ -3400,7 +3416,6 @@ void pin_start() {
     pinMode(pino_Select, INPUT);
     pinMode(pino_Start, INPUT);
     pinMode(pino_Reset, INPUT);
-
 
     pullUpDnControl(pino_up, PUD_UP);
     pullUpDnControl(pino_down, PUD_UP);
@@ -3423,18 +3438,20 @@ void pin_start() {
     if (wiringPiISR(pino_Start, INT_EDGE_BOTH, handle_Start_button) < 0) exit(17);
     if (wiringPiISR(pino_Reset, INT_EDGE_BOTH, handle_reset_button) < 0) exit(17);
 }
+void pause_ISR() {
+    wiringPiISRStop(pino_up);
+    wiringPiISRStop(pino_down);
+    wiringPiISRStop(pino_left);
+    wiringPiISRStop(pino_right);
+
+    wiringPiISRStop(pino_A);
+    wiringPiISRStop(pino_B);
+    wiringPiISRStop(pino_Select);
+    wiringPiISRStop(pino_Start);
+    wiringPiISRStop(pino_Reset);
+}
 void lcd_start() {
-    if (wiringPiSetupGpio()<0)
-        exit(1);
-    pin_start();
-    pinMode(18,OUTPUT);
-    usleep(15000);
-    pinMode(25,OUTPUT);// DC 0 = comando | DC 1 = dados
-    usleep(15000);
-    pinMode(27, OUTPUT);
-    usleep(15000);
-    digitalWrite(27, HIGH);
-    digitalWrite(18, HIGH);
+    start_sys();
     spi = wiringPiSPISetupMode(0, 32000000, 3);
     uint8_t sequencia[] = {0x1, 0x11, 0x3A, 0x36, 0x21, 0x13, 0x29,0x2A, 0x2B};
     uint8_t dados[] = {0x55,0x0};
@@ -3451,7 +3468,7 @@ void lcd_start() {
 	    write_command(&rst);
 	    uint16_t blk[240] = {0};
             for (uint8_t i = 0; i<240; i++){
-	    	send_to_lcd(blk, 240 * 2);
+	    	    send_to_lcd(blk, 240 * 2);
             }
 	    write_command(&rst);
             uint8_t col[] = {0,0x28,0,0xC7};
@@ -3473,6 +3490,8 @@ void lcd_start() {
 
 void ppu_cycles_Verify() {
     if (!check_LCDC(7)) {
+        set_ly(0);
+        set_ppu_mode(0);
         return;
     }
     if (ppu.contador_ciclos >= (80 + 172 + 204)) {
@@ -3722,6 +3741,9 @@ int main(int argc, char*argv[]) {
         //write_into_memory_8bit(0xFF00, 0b00101111);
         bool cond_up_day_overflow = false;
         while (1) {
+            if (EI_interrupt_enable_cond) {
+                cpu.enable_interrupt = true;
+            }
             if (memory.MBC_type == 3 && (memory.MBC_register.MBC3.RTC_Register & 0b01000000) == 0) {
                 *new_time = time(NULL);
                 diff = *new_time - *old_time;
@@ -3767,7 +3789,11 @@ int main(int argc, char*argv[]) {
             if (vblank_start_joypad) {
                 vblank_start_joypad = false;
                 if (__atomic_load_n(&on_reset_button_phys, __ATOMIC_RELAXED)) {
+                    pause_ISR();
                     persist_save_game_on_exit();
+                    free(memory.game_rom);
+                    free(cpu.game_file);
+                    //                         //SDL_DestroyWindow(screen);
                     exit(0);
                 }
                 //printf("FFCC = %02X\n", read_from_memory_8bit(0xFFCC));
