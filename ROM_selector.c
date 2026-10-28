@@ -94,6 +94,8 @@ void translate_to_framebuffer(uint8_t row, char* phrase, bool is_selected) {
                     }
                     if (toupper(phrase[i]) >='A' && toupper(phrase[i]) <= 'Z'& i<(strlen(phrase)))
                         frame_buffer[row][i][j][k] = fonte_rgb565_invertida[toupper(phrase[i])-'A'][j][k];
+                    else if (toupper(phrase[i]) >='0' && toupper(phrase[i]) <= '9'& i<(strlen(phrase)))
+                        frame_buffer[row][i][j][k] = fonte_rgb565_numeros_invertida[phrase[i]-'0'][j][k];
                     else if (toupper(phrase[i]) == '.' & i<(strlen(phrase)))
                         frame_buffer[row][i][j][k] = fonte_rgb565_invertida[27][j][k];
                     else
@@ -110,8 +112,11 @@ void translate_to_framebuffer(uint8_t row, char* phrase, bool is_selected) {
                         frame_buffer[row][i][j][k] = fonte_rgb565_normal[26][j][k];;
                         continue;
                     }
+
                     if (toupper(phrase[i]) >='A' && toupper(phrase[i]) <= 'Z' & i<(strlen(phrase)))
                         frame_buffer[row][i][j][k] = fonte_rgb565_normal[toupper(phrase[i])-'A'][j][k];
+                    else if (toupper(phrase[i]) >='0' && toupper(phrase[i]) <= '9' & i<(strlen(phrase)))
+                        frame_buffer[row][i][j][k] = fonte_rgb565_numeros_normal[phrase[i]-'0'][j][k];
                     else if (toupper(phrase[i]) == '.' & i<(strlen(phrase)))
                         frame_buffer[row][i][j][k] = fonte_rgb565_normal[27][j][k];
                     else
