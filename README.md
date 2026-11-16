@@ -99,3 +99,14 @@ O objetivo deste porte foi transformar o C-GBoy em um projeto que pudesse ser ut
 Além das mudanças na renderização e na entrada de dados, foi necessário lidar com a comunicação SPI, gerenciamento dos GPIOs e execução dos programas no Linux.
 
 O resultado é uma versão do emulador adaptada para funcionar em um console portátil baseado no Raspberry Pi.
+
+## Galeria de fotos
+
+<img width="4032" height="3024" alt="IMG_8869" src="https://github.com/user-attachments/assets/d7a4f985-ab0e-484f-94da-384bce7a2c9b" />
+<img width="3024" height="4032" alt="IMG_8867" src="https://github.com/user-attachments/assets/24a0b2d9-5fea-4d18-b260-4d8340f2f786" />
+<img width="4032" height="3024" alt="IMG_8866" src="https://github.com/user-attachments/assets/0c61bb39-1234-446a-b3f1-bf16dc994c4f" />
+<img width="4032" height="3024" alt="IMG_8864" src="https://github.com/user-attachments/assets/503c4c20-25dd-44bd-a1aa-b7d087d0fe3e" />
+
+
+
+
